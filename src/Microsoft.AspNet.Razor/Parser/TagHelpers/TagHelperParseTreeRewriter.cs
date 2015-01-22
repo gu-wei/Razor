@@ -5,8 +5,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using Microsoft.AspNet.Razor.Generator;
 using Microsoft.AspNet.Razor.Parser.SyntaxTree;
 using Microsoft.AspNet.Razor.TagHelpers;
+using Microsoft.AspNet.Razor.Text;
 using Microsoft.AspNet.Razor.Tokenizer.Symbols;
 
 namespace Microsoft.AspNet.Razor.Parser.TagHelpers.Internal
@@ -45,15 +47,30 @@ namespace Microsoft.AspNet.Razor.Parser.TagHelpers.Internal
 
             foreach (var child in input.Children)
             {
+                var childToTrack = child;
+
                 if (child.IsBlock)
                 {
                     var childBlock = (Block)child;
 
                     if (childBlock.Type == BlockType.Tag)
                     {
-                        if (TryRewriteTagHelper(childBlock, context))
+                        bool escapedTagHelper;
+
+                        if (TryRewriteTagHelper(childBlock, context, out escapedTagHelper))
                         {
+                            // Successfully rewriting a TagHelper should never result in the escapedTagHelper flag 
+                            // being true.
+                            Debug.Assert(!escapedTagHelper);
+
                             continue;
+                        }
+
+                        // The TagHelper was escaped, we need to rewrite the normal HTML block to not render the '!'
+                        // when generating its chunk.
+                        if (escapedTagHelper)
+                        {
+                            childToTrack = RewriteEscapedTagHelperBlock(childBlock);
                         }
 
                         // If we get to here it means that we're a normal html tag.  No need to iterate any deeper into
@@ -71,7 +88,7 @@ namespace Microsoft.AspNet.Razor.Parser.TagHelpers.Internal
                 // tag helper.
 
                 // Add the child to current block. 
-                _currentBlock.Children.Add(child);
+                _currentBlock.Children.Add(childToTrack);
             }
 
             // We captured the number of active tag helpers at the start of our logic, it should be the same. If not
@@ -89,12 +106,13 @@ namespace Microsoft.AspNet.Razor.Parser.TagHelpers.Internal
             BuildCurrentlyTrackedBlock();
         }
 
-        private bool TryRewriteTagHelper(Block tagBlock, RewritingContext context)
+        private bool TryRewriteTagHelper(Block tagBlock, RewritingContext context, out bool escapedTagHelper)
         {
             // TODO: Fully handle malformed tags: https://github.com/aspnet/Razor/issues/104
 
             // Get tag name of the current block (doesn't matter if it's an end or start tag)
             var tagName = GetTagName(tagBlock);
+            escapedTagHelper = false;
 
             // Could not determine tag name, it can't be a TagHelper, continue on and track the element.
             if (tagName == null)
@@ -112,6 +130,13 @@ namespace Microsoft.AspNet.Razor.Parser.TagHelpers.Internal
             // If there aren't any TagHelperDescriptors registered then we aren't a TagHelper
             if (!descriptors.Any())
             {
+                return false;
+            }
+            // There are descriptors for the tagBlock, ensure the user doesn't want to escape the TagHelper
+            else if (IsEscapedTagHelper(tagBlock))
+            {
+                escapedTagHelper = true;
+
                 return false;
             }
 
@@ -312,6 +337,37 @@ namespace Microsoft.AspNet.Razor.Parser.TagHelpers.Internal
 
                 BuildCurrentlyTrackedTagHelperBlock();
             }
+        }
+
+        private static Block RewriteEscapedTagHelperBlock(Block tagBlock)
+        {
+            var blockBuilder = new BlockBuilder(tagBlock);
+            var childSpan = (Span)blockBuilder.Children[0];
+
+            // We're going to modify the first span so remove it from the tracking block so we can replace it.
+            blockBuilder.Children.RemoveAt(0);
+
+            var spanBuilder = new SpanBuilder(childSpan);
+
+            // Can only rewrite spans which have MarkupCodeGenerators (they generate LiteralChunks).
+            Debug.Assert(spanBuilder.CodeGenerator is MarkupCodeGenerator);
+
+            // The EscapedTagHelperCodeGenerator is what removes the '!' from the output of tagBlock.
+            spanBuilder.CodeGenerator = new EscapedTagHelperCodeGenerator();
+
+            blockBuilder.Children.Insert(0, spanBuilder.Build());
+
+            return blockBuilder.Build();
+        }
+
+        private static bool IsEscapedTagHelper(Block tagBlock)
+        {
+            var childSpan = (Span)tagBlock.Children.First();
+            var escapeOffset = IsEndTag(tagBlock) ? 2 : 1;
+
+            var potentialEscapee = (HtmlSymbol)childSpan.Symbols.Skip(escapeOffset).First();
+
+            return potentialEscapee.Type.Equals(HtmlSymbolType.Bang);
         }
 
         private static string GetTagName(Block tagBlock)

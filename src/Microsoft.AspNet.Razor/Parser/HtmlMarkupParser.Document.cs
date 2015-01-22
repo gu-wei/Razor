@@ -42,58 +42,72 @@ namespace Microsoft.AspNet.Razor.Parser
             {
                 if (NextIs(HtmlSymbolType.Bang))
                 {
-                    AcceptAndMoveNext(); // Accept '<'
-                    BangTag();
+                    var afterBang = Lookahead(count: 2);
+
+                    // Checking to see if we meet the conditions of a special '!' tag: <!DOCTYPE, <![CDATA[, <!--.
+                    if (afterBang != null && 
+                        (afterBang.Type != HtmlSymbolType.Text ||
+                        string.Equals(afterBang.Content, "DOCTYPE", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        AcceptAndMoveNext(); // Accept '<'
+                        BangTag();
+
+                        return;
+                    }
+
+                    // We should behave like a normal tag, fall through to the normal tag logic.
                 }
                 else if (NextIs(HtmlSymbolType.QuestionMark))
                 {
                     AcceptAndMoveNext(); // Accept '<'
                     XmlPI();
+                    return;
+                }
+
+                Output(SpanKind.Markup);
+
+                // Start tag block
+                var tagBlock = Context.StartBlock(BlockType.Tag);
+
+                AcceptAndMoveNext(); // Accept '<'
+
+                if (!At(HtmlSymbolType.ForwardSlash))
+                {
+                    Optional(HtmlSymbolType.Bang);
+
+                    // Parsing a start tag
+                    var scriptTag = At(HtmlSymbolType.Text) &&
+                                    string.Equals(CurrentSymbol.Content, "script", StringComparison.OrdinalIgnoreCase);
+                    Optional(HtmlSymbolType.Text);
+                    TagContent(); // Parse the tag, don't care about the content
+                    Optional(HtmlSymbolType.ForwardSlash);
+                    Optional(HtmlSymbolType.CloseAngle);
+
+                    if (scriptTag)
+                    {
+                        Output(SpanKind.Markup);
+                        tagBlock.Dispose();
+
+                        SkipToEndScriptAndParseCode();
+                        return;
+                    }
                 }
                 else
                 {
-                    Output(SpanKind.Markup);
-
-                    // Start tag block
-                    var tagBlock = Context.StartBlock(BlockType.Tag);
-
-                    AcceptAndMoveNext(); // Accept '<'
-
-                    if (!At(HtmlSymbolType.ForwardSlash))
-                    {
-                        // Parsing a start tag
-                        var scriptTag = At(HtmlSymbolType.Text) &&
-                                        string.Equals(CurrentSymbol.Content, "script", StringComparison.OrdinalIgnoreCase);
-                        Optional(HtmlSymbolType.Text);
-                        TagContent(); // Parse the tag, don't care about the content
-                        Optional(HtmlSymbolType.ForwardSlash);
-                        Optional(HtmlSymbolType.CloseAngle);
-
-                        if (scriptTag)
-                        {
-                            Output(SpanKind.Markup);
-                            tagBlock.Dispose();
-
-                            SkipToEndScriptAndParseCode();
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        // Parsing an end tag
-                        // This section can accept things like: '</p  >' or '</p>' etc.
-                        Optional(HtmlSymbolType.ForwardSlash);
-                        // Whitespace here is invalid (according to the spec)
-                        Optional(HtmlSymbolType.Text);
-                        AcceptAll(HtmlSymbolType.WhiteSpace);
-                        Optional(HtmlSymbolType.CloseAngle);
-                    }
-
-                    Output(SpanKind.Markup);
-
-                    // End tag block
-                    tagBlock.Dispose();
+                    // Parsing an end tag
+                    // This section can accept things like: '</p  >' or '</p>' etc.
+                    Optional(HtmlSymbolType.ForwardSlash);
+                    // Whitespace here is invalid (according to the spec)
+                    Optional(HtmlSymbolType.Bang);
+                    Optional(HtmlSymbolType.Text);
+                    AcceptAll(HtmlSymbolType.WhiteSpace);
+                    Optional(HtmlSymbolType.CloseAngle);
                 }
+
+                Output(SpanKind.Markup);
+
+                // End tag block
+                tagBlock.Dispose();
             }
         }
     }

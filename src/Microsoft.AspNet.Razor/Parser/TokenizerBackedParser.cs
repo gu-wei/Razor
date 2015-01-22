@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.AspNet.Razor.Parser.SyntaxTree;
 using Microsoft.AspNet.Razor.Text;
@@ -73,6 +74,39 @@ namespace Microsoft.AspNet.Razor.Parser
             {
                 SpanConfig(span);
             }
+        }
+
+        protected TSymbol Lookahead(int count = 1)
+        {
+            if (count == 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(count));
+            }
+
+            // We add 1 in order to store the current symbol.
+            var symbols = new TSymbol[count + 1];
+            var currentSymbol = CurrentSymbol;
+
+            symbols[0] = currentSymbol;
+
+            // We need to lookforward "count" many times.
+            for(var i = 1; i <= count; i++)
+            {
+                NextToken();
+                symbols[i] = CurrentSymbol;
+            }
+
+            // We don't want to modify where the Tokenizer is pointing. Restore it to what it was before the lookahead.
+            for (var i = count; i >= 0; i--)
+            {
+                PutBack(symbols[i]);
+            }
+
+            // The PutBacks above will set CurrentSymbol to null. EnsureCurrent will set our CurrentSymbol to the 
+            // next symbol.
+            EnsureCurrent();
+
+            return symbols[count];
         }
 
         protected internal bool NextToken()

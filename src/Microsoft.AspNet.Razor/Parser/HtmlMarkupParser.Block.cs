@@ -197,6 +197,23 @@ namespace Microsoft.AspNet.Razor.Parser
                         // End Tag
                         return EndTag(tagStart, tags, tagBlockWrapper);
                     case HtmlSymbolType.Bang:
+                        var nextSymbol = Lookahead();
+
+                        // If the next symbol is a text symbol and is not DOCTYPE then it's an ordinary HTML tag.
+                        if (nextSymbol != null && nextSymbol.Type == HtmlSymbolType.Text &&
+                            !string.Equals(nextSymbol.Content, "DOCTYPE", StringComparison.OrdinalIgnoreCase))
+                        {
+                            using (tagBlockWrapper = Context.StartBlock(BlockType.Tag))
+                            {
+                                var complete = StartTag(tags, tagBlockWrapper);
+
+                                // If the tag was completed this will ensure the '>' is contained in the tag block.
+                                Output(SpanKind.Markup);
+
+                                return complete;
+                            }
+                        }
+
                         // Comment
                         Accept(_bufferedOpenAngle);
                         return BangTag();
@@ -284,15 +301,31 @@ namespace Microsoft.AspNet.Razor.Parser
             }
             else
             {
-                var tagName = String.Empty;
-                if (At(HtmlSymbolType.Text))
+                var tagName = string.Empty;
+                HtmlSymbol bangSymbol = null;
+
+                if (At(HtmlSymbolType.Bang))
+                {
+                    bangSymbol = CurrentSymbol;
+
+                    var nextSymbol = Lookahead();
+
+                    if (nextSymbol != null && nextSymbol.Type == HtmlSymbolType.Text)
+                    {
+                        tagName = nextSymbol.Content;
+                    }
+                }
+                else if (At(HtmlSymbolType.Text))
                 {
                     tagName = CurrentSymbol.Content;
                 }
+
                 var matched = RemoveTag(tags, tagName, tagStart);
 
                 if (tags.Count == 0 &&
-                    String.Equals(tagName, SyntaxConstants.TextTagName, StringComparison.OrdinalIgnoreCase) &&
+                    // Text tags cannot be targeted by TagHelpers and therefore can't be escaped with '!'.
+                    bangSymbol == null &&
+                    string.Equals(tagName, SyntaxConstants.TextTagName, StringComparison.OrdinalIgnoreCase) &&
                     matched)
                 {
                     return EndTextTag(solidus, tagBlockWrapper);
@@ -653,18 +686,35 @@ namespace Microsoft.AspNet.Razor.Parser
         {
             // If we're at text, it's the name, otherwise the name is ""
             HtmlSymbol tagName;
-            if (At(HtmlSymbolType.Text))
+            HtmlSymbol bangSymbol = null;
+            HtmlSymbol potentialTagNameSymbol;
+
+            if (At(HtmlSymbolType.Bang))
             {
-                tagName = CurrentSymbol;
+                bangSymbol = CurrentSymbol;
+
+                potentialTagNameSymbol = Lookahead();
             }
             else
             {
-                tagName = new HtmlSymbol(CurrentLocation, String.Empty, HtmlSymbolType.Unknown);
+                potentialTagNameSymbol = CurrentSymbol;
+            }
+
+            if (potentialTagNameSymbol != null && potentialTagNameSymbol.Type == HtmlSymbolType.Text)
+            {
+                tagName = potentialTagNameSymbol;
+            }
+            else
+            {
+                tagName = new HtmlSymbol(potentialTagNameSymbol.Start, String.Empty, HtmlSymbolType.Unknown);
             }
 
             Tuple<HtmlSymbol, SourceLocation> tag = Tuple.Create(tagName, _lastTagStart);
 
-            if (tags.Count == 0 && String.Equals(tag.Item1.Content, SyntaxConstants.TextTagName, StringComparison.OrdinalIgnoreCase))
+            if (tags.Count == 0 &&
+                // Text tags cannot be targeted by TagHelpers and therefore can't be escaped with '!'.
+                bangSymbol == null &&
+                string.Equals(tag.Item1.Content, SyntaxConstants.TextTagName, StringComparison.OrdinalIgnoreCase))
             {
                 Output(SpanKind.Markup);
                 Span.CodeGenerator = SpanCodeGenerator.Null;
@@ -710,6 +760,7 @@ namespace Microsoft.AspNet.Razor.Parser
                 return true;
             }
             Accept(_bufferedOpenAngle);
+            Optional(HtmlSymbolType.Bang);
             Optional(HtmlSymbolType.Text);
             return RestOfTag(tag, tags, tagBlockWrapper);
         }
