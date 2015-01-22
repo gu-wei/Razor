@@ -104,6 +104,11 @@ namespace Microsoft.AspNet.Razor.Test.Framework
             return self.Span(SpanKind.Comment, content, type);
         }
 
+        public static SpanConstructor EscapedMarkup(this SpanFactory self, string content)
+        {
+            return self.Markup(content).With(new EscapedTagHelperCodeGenerator());
+        }
+
         public static SpanConstructor Markup(this SpanFactory self, string content)
         {
             return self.Span(SpanKind.Markup, content, markup: true).With(new MarkupCodeGenerator());
