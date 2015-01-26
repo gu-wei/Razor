@@ -1,8 +1,8 @@
 ﻿// Copyright (c) Microsoft Open Technologies, Inc. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-using System.IO;
-using System.Text;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -10,6 +10,79 @@ namespace Microsoft.AspNet.Razor.Runtime.TagHelpers
 {
     public class TagHelperRunnerTest
     {
+        public static TheoryData TagHelperOrderData
+        {
+            get
+            {
+                var tagHelper1000 = new OrderedTagHelper(1000);
+                var tagHelperMAX = new OrderedTagHelper(int.MaxValue);
+                var tagHelper0 = new OrderedTagHelper(0);
+                var tagHelperN1000 = new OrderedTagHelper(-1000);
+                var tagHelperMIN = new OrderedTagHelper(int.MinValue);
+
+                // tagHelperAddOrder, expectedTagHelperOrder
+                return new TheoryData<OrderedTagHelper[], OrderedTagHelper[]>
+                {
+                    {
+                        new[] { tagHelper1000, tagHelperMAX, tagHelper0 },
+                        new[] { tagHelper0, tagHelper1000, tagHelperMAX }
+                    },
+                    {
+                        new[] { tagHelperMAX, tagHelperMAX, tagHelperMIN },
+                        new[] { tagHelperMIN, tagHelperMAX, tagHelperMAX }
+                    },
+                    {
+                        new[] { tagHelper0, tagHelper0, tagHelperMIN },
+                        new[] { tagHelperMIN, tagHelper0, tagHelper0 }
+                    },
+                    {
+                        new[] { tagHelperMIN, tagHelperN1000, tagHelper0 },
+                        new[] { tagHelperMIN, tagHelperN1000, tagHelper0 }
+                    },
+                    {
+                        new[] { tagHelper0, tagHelper1000, tagHelperMAX },
+                        new[] { tagHelper0, tagHelper1000, tagHelperMAX }
+                    },
+                    {
+                        new[] { tagHelperMAX, tagHelperMIN, tagHelperMAX, tagHelperN1000, tagHelperMAX, tagHelper0 },
+                        new[] { tagHelperMIN, tagHelperN1000, tagHelper0, tagHelperMAX, tagHelperMAX, tagHelperMAX }
+                    },
+                    {
+                        new[] { tagHelper0, tagHelper0, tagHelper0, tagHelper0 },
+                        new[] { tagHelper0, tagHelper0, tagHelper0, tagHelper0 }
+                    },
+
+                    {
+                        new[] { tagHelper1000, tagHelperMAX, tagHelper0, tagHelperN1000, tagHelperMIN },
+                        new[] { tagHelperMIN, tagHelperN1000, tagHelper0, tagHelper1000, tagHelperMAX }
+                    },
+                };
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(TagHelperOrderData))]
+        public async Task RunAsync_OrdersTagHelpers(
+            OrderedTagHelper[] tagHelperAddOrder,
+            OrderedTagHelper[] expectedTagHelperOrder)
+        {
+            // Arrange
+            var runner = new TagHelperRunner();
+            var executionContext = new TagHelperExecutionContext("p");
+            var processOrder = new List<OrderedTagHelper>();
+
+            // Act
+            foreach (var tagHelper in tagHelperAddOrder)
+            {
+                tagHelper.ProcessOrderTracker = processOrder;
+                executionContext.Add(tagHelper);
+            }
+            await runner.RunAsync(executionContext);
+
+            // Assert
+            Assert.Equal(expectedTagHelperOrder, processOrder);
+        }
+
         [Fact]
         public async Task RunAsync_ProcessesAllTagHelpers()
         {
@@ -86,6 +159,26 @@ namespace Microsoft.AspNet.Razor.Runtime.TagHelpers
             public override void Process(TagHelperContext context, TagHelperOutput output)
             {
                 output.Attributes["foo"] = context.AllAttributes["foo"].ToString();
+            }
+        }
+
+        public class OrderedTagHelper : TagHelper
+        {
+            public OrderedTagHelper(int order)
+            {
+                Order = order;
+            }
+
+            public override int Order { get; }
+            public IList<OrderedTagHelper> ProcessOrderTracker { get; set; }
+
+            public override void Process(TagHelperContext context, TagHelperOutput output)
+            {
+                // If using this class for testing, ensure that ProcessOrderTracker is always set PRIOR to Process
+                // execution.
+                Debug.Assert(ProcessOrderTracker != null);
+
+                ProcessOrderTracker.Add(this);
             }
         }
     }
