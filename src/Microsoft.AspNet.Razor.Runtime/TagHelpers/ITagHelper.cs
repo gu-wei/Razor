@@ -11,6 +11,11 @@ namespace Microsoft.AspNet.Razor.Runtime.TagHelpers
     public interface ITagHelper
     {
         /// <summary>
+        /// The value used to decided <see cref="ITagHelper"/> execution order. Lower values are executed first.
+        /// </summary>
+        int Order { get; }
+
+        /// <summary>
         /// Asynchronously executes the <see cref="ITagHelper"/> with the given <paramref name="context"/> and
         /// <paramref name="output"/>.
         /// </summary>
