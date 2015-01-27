@@ -93,7 +93,10 @@ namespace Microsoft.AspNet.Razor.Parser.TagHelpers.Internal
             var htmlSymbols = span.Symbols.OfType<HtmlSymbol>().ToArray();
             var capturedAttributeValueStart = false;
             var attributeValueStartLocation = span.Start;
-            var symbolOffset = 1;
+
+            // The symbolOffset is initialized to 0 to expect worst case: "class=". If a quote is found later on for
+            // the attribute value the symbolOffset is adjusted accordingly.
+            var symbolOffset = 0;
             string name = null;
 
             // Iterate down through the symbols to find the name and the start of the value.
@@ -119,7 +122,7 @@ namespace Microsoft.AspNet.Razor.Parser.TagHelpers.Internal
                 else if (name == null && symbol.Type == HtmlSymbolType.Text)
                 {
                     name = symbol.Content;
-                    attributeValueStartLocation = SourceLocation.Advance(span.Start, name);
+                    attributeValueStartLocation = SourceLocation.Advance(attributeValueStartLocation, name);
                 }
                 else if (symbol.Type == HtmlSymbolType.Equals)
                 {
@@ -134,11 +137,14 @@ namespace Microsoft.AspNet.Razor.Parser.TagHelpers.Internal
                     SourceLocation symbolStartLocation;
 
                     // Check for attribute start values, aka single or double quote
-                    if (IsQuote(htmlSymbols[i + 1]))
+                    if (i + 1 < htmlSymbols.Length && IsQuote(htmlSymbols[i + 1]))
                     {
                         // Move past the attribute start so we can accept the true value.
                         i++;
-                        symbolStartLocation = htmlSymbols[i + 1].Start;
+                        symbolStartLocation = htmlSymbols[i].Start;
+
+                        // If there's a start quote then there must be an end quote to be valid, skip it.
+                        symbolOffset = 1;
                     }
                     else
                     {
@@ -148,12 +154,16 @@ namespace Microsoft.AspNet.Razor.Parser.TagHelpers.Internal
                         symbolOffset = 0;
                     }
 
-                    attributeValueStartLocation = symbolStartLocation +
-                                                  span.Start +
-                                                  new SourceLocation(absoluteIndex: 1,
-                                                                     lineIndex: 0,
-                                                                     characterIndex: 1);
+                    attributeValueStartLocation = 
+                        span.Start +
+                        symbolStartLocation +
+                        new SourceLocation(absoluteIndex: 1, lineIndex: 0, characterIndex: 1);
+
                     afterEquals = true;
+                }
+                else if (symbol.Type == HtmlSymbolType.WhiteSpace)
+                {
+                    attributeValueStartLocation = SourceLocation.Advance(attributeValueStartLocation, symbol.Content);
                 }
             }
 
