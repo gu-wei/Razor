@@ -11,7 +11,8 @@ namespace Microsoft.AspNet.Razor.Runtime.TagHelpers
     public interface ITagHelper
     {
         /// <summary>
-        /// The value used to decided <see cref="ITagHelper"/> execution order. Lower values are executed first.
+        /// Gets the execution order of this <see cref= "ITagHelper" /> relative to others targeting the same element.
+        /// <see cref="ITagHelper"/> instances with lower values are executed first.
         /// </summary>
         int Order { get; }
 

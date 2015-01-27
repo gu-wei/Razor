@@ -14,47 +14,41 @@ namespace Microsoft.AspNet.Razor.Runtime.TagHelpers
         {
             get
             {
-                var tagHelper1000 = new OrderedTagHelper(1000);
-                var tagHelperMAX = new OrderedTagHelper(int.MaxValue);
-                var tagHelper0 = new OrderedTagHelper(0);
-                var tagHelperN1000 = new OrderedTagHelper(-1000);
-                var tagHelperMIN = new OrderedTagHelper(int.MinValue);
-
-                // tagHelperAddOrder, expectedTagHelperOrder
-                return new TheoryData<OrderedTagHelper[], OrderedTagHelper[]>
+                // tagHelperOrders, expectedTagHelperOrders
+                return new TheoryData<int[], int[]>
                 {
                     {
-                        new[] { tagHelper1000, tagHelperMAX, tagHelper0 },
-                        new[] { tagHelper0, tagHelper1000, tagHelperMAX }
+                        new[] { 1000, int.MaxValue, 0 },
+                        new[] { 0, 1000, int.MaxValue }
                     },
                     {
-                        new[] { tagHelperMAX, tagHelperMAX, tagHelperMIN },
-                        new[] { tagHelperMIN, tagHelperMAX, tagHelperMAX }
+                        new[] { int.MaxValue, int.MaxValue, int.MinValue },
+                        new[] { int.MinValue, int.MaxValue, int.MaxValue }
                     },
                     {
-                        new[] { tagHelper0, tagHelper0, tagHelperMIN },
-                        new[] { tagHelperMIN, tagHelper0, tagHelper0 }
+                        new[] { 0, 0, int.MinValue },
+                        new[] { int.MinValue, 0, 0 }
                     },
                     {
-                        new[] { tagHelperMIN, tagHelperN1000, tagHelper0 },
-                        new[] { tagHelperMIN, tagHelperN1000, tagHelper0 }
+                        new[] { int.MinValue, -1000, 0 },
+                        new[] { int.MinValue, -1000, 0 }
                     },
                     {
-                        new[] { tagHelper0, tagHelper1000, tagHelperMAX },
-                        new[] { tagHelper0, tagHelper1000, tagHelperMAX }
+                        new[] { 0, 1000, int.MaxValue },
+                        new[] { 0, 1000, int.MaxValue }
                     },
                     {
-                        new[] { tagHelperMAX, tagHelperMIN, tagHelperMAX, tagHelperN1000, tagHelperMAX, tagHelper0 },
-                        new[] { tagHelperMIN, tagHelperN1000, tagHelper0, tagHelperMAX, tagHelperMAX, tagHelperMAX }
+                        new[] { int.MaxValue, int.MinValue, int.MaxValue, -1000, int.MaxValue, 0 },
+                        new[] { int.MinValue, -1000, 0, int.MaxValue, int.MaxValue, int.MaxValue }
                     },
                     {
-                        new[] { tagHelper0, tagHelper0, tagHelper0, tagHelper0 },
-                        new[] { tagHelper0, tagHelper0, tagHelper0, tagHelper0 }
+                        new[] { 0, 0, 0, 0 },
+                        new[] { 0, 0, 0, 0 }
                     },
 
                     {
-                        new[] { tagHelper1000, tagHelperMAX, tagHelper0, tagHelperN1000, tagHelperMIN },
-                        new[] { tagHelperMIN, tagHelperN1000, tagHelper0, tagHelper1000, tagHelperMAX }
+                        new[] { 1000, int.MaxValue, 0, -1000, int.MinValue },
+                        new[] { int.MinValue, -1000, 0, 1000, int.MaxValue }
                     },
                 };
             }
@@ -63,24 +57,27 @@ namespace Microsoft.AspNet.Razor.Runtime.TagHelpers
         [Theory]
         [MemberData(nameof(TagHelperOrderData))]
         public async Task RunAsync_OrdersTagHelpers(
-            OrderedTagHelper[] tagHelperAddOrder,
-            OrderedTagHelper[] expectedTagHelperOrder)
+            int[] tagHelperOrders,
+            int[] expectedTagHelperOrders)
         {
             // Arrange
             var runner = new TagHelperRunner();
             var executionContext = new TagHelperExecutionContext("p");
-            var processOrder = new List<OrderedTagHelper>();
+            var processOrder = new List<int>();
+            OrderedTagHelper orderedTagHelper;
+
+            foreach (var order in tagHelperOrders)
+            {
+                orderedTagHelper = new OrderedTagHelper(order);
+                orderedTagHelper.ProcessOrderTracker = processOrder;
+                executionContext.Add(orderedTagHelper);
+            }
 
             // Act
-            foreach (var tagHelper in tagHelperAddOrder)
-            {
-                tagHelper.ProcessOrderTracker = processOrder;
-                executionContext.Add(tagHelper);
-            }
             await runner.RunAsync(executionContext);
 
             // Assert
-            Assert.Equal(expectedTagHelperOrder, processOrder);
+            Assert.Equal(expectedTagHelperOrders, processOrder);
         }
 
         [Fact]
@@ -162,7 +159,7 @@ namespace Microsoft.AspNet.Razor.Runtime.TagHelpers
             }
         }
 
-        public class OrderedTagHelper : TagHelper
+        private class OrderedTagHelper : TagHelper
         {
             public OrderedTagHelper(int order)
             {
@@ -170,7 +167,7 @@ namespace Microsoft.AspNet.Razor.Runtime.TagHelpers
             }
 
             public override int Order { get; }
-            public IList<OrderedTagHelper> ProcessOrderTracker { get; set; }
+            public IList<int> ProcessOrderTracker { get; set; }
 
             public override void Process(TagHelperContext context, TagHelperOutput output)
             {
@@ -178,7 +175,7 @@ namespace Microsoft.AspNet.Razor.Runtime.TagHelpers
                 // execution.
                 Debug.Assert(ProcessOrderTracker != null);
 
-                ProcessOrderTracker.Add(this);
+                ProcessOrderTracker.Add(Order);
             }
         }
     }
